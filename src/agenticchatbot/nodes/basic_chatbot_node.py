@@ -1,4 +1,4 @@
-from src.agenticchatbot.states.state import State
+from agenticchatbot.states.state import State
 
 class BasicChatBotNode:
     """

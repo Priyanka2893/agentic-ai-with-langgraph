@@ -1,4 +1,5 @@
 import streamlit as st
+from agenticchatbot.chatbot import AgenticChatbot
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -50,6 +51,40 @@ if "selected_usecase" not in st.session_state:
 if "api_key" not in st.session_state:
     st.session_state.api_key = ""
 
+if "chatbot" not in st.session_state:
+    st.session_state.chatbot = None
+
+if "chatbot_config" not in st.session_state:
+    st.session_state.chatbot_config = {}
+
+
+def _current_config() -> dict:
+    return {
+        "provider": st.session_state.selected_provider,
+        "model": st.session_state.selected_model,
+        "api_key": st.session_state.api_key,
+        "usecase": st.session_state.selected_usecase,
+    }
+
+
+def _get_chatbot() -> AgenticChatbot | None:
+    cfg = _current_config()
+    if any(v is None or v == "" for v in cfg.values()):
+        return None
+    if cfg != st.session_state.chatbot_config:
+        try:
+            st.session_state.chatbot = AgenticChatbot(
+                provider=cfg["provider"],
+                model=cfg["model"],
+                api_key=cfg["api_key"],
+                usecase=cfg["usecase"],
+            )
+            st.session_state.chatbot_config = cfg
+        except Exception as e:
+            st.error(f"Failed to initialise chatbot: {e}")
+            return None
+    return st.session_state.chatbot
+
 
 def _is_configured() -> bool:
     return (
@@ -83,6 +118,8 @@ with st.sidebar:
     if selected_bot != st.session_state.selected_bot:
         st.session_state.selected_bot = selected_bot
         st.session_state.messages = []
+        st.session_state.chatbot = None
+        st.session_state.chatbot_config = {}
         st.rerun()
 
     # LLM provider selection
@@ -181,17 +218,15 @@ if _is_configured():
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        # Placeholder — replace with actual bot invocation once backend is ready
-        response = (
-            f"_(Backend not yet connected — "
-            f"bot: **{st.session_state.selected_bot}**, "
-            f"model: **{st.session_state.selected_model}**, "
-            f"usecase: **{st.session_state.selected_usecase}**)_"
-        )
-
-        with st.chat_message("assistant"):
-            st.markdown(response)
-
-        st.session_state.messages.append({"role": "assistant", "content": response})
+        chatbot = _get_chatbot()
+        if chatbot:
+            with st.chat_message("assistant"):
+                with st.spinner("Thinking…"):
+                    try:
+                        response = chatbot.chat(st.session_state.messages)
+                    except Exception as e:
+                        response = f"Error: {e}"
+                st.markdown(response)
+            st.session_state.messages.append({"role": "assistant", "content": response})
 else:
     st.chat_input("Complete sidebar configuration to chat…", disabled=True)
