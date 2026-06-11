@@ -22,6 +22,11 @@ USECASES = [
     "Summarization",
 ]
 
+CHATBOT_TYPES = [
+    "Basic Chatbot",
+    "Chatbot with Tools",
+]
+
 # ── Page config ────────────────────────────────────────────────────────────────
 
 st.set_page_config(
@@ -57,6 +62,12 @@ if "chatbot" not in st.session_state:
 if "chatbot_config" not in st.session_state:
     st.session_state.chatbot_config = {}
 
+if "selected_chatbot_type" not in st.session_state:
+    st.session_state.selected_chatbot_type = "Basic Chatbot"
+
+if "tavily_api_key" not in st.session_state:
+    st.session_state.tavily_api_key = ""
+
 
 def _current_config() -> dict:
     return {
@@ -64,12 +75,17 @@ def _current_config() -> dict:
         "model": st.session_state.selected_model,
         "api_key": st.session_state.api_key,
         "usecase": st.session_state.selected_usecase,
+        "chatbot_type": st.session_state.selected_chatbot_type,
+        "tavily_api_key": st.session_state.tavily_api_key,
     }
 
 
 def _get_chatbot() -> AgenticChatbot | None:
     cfg = _current_config()
-    if any(v is None or v == "" for v in cfg.values()):
+    required = {k: v for k, v in cfg.items() if k != "tavily_api_key"}
+    if any(v is None or v == "" for v in required.values()):
+        return None
+    if cfg["chatbot_type"] == "Chatbot with Tools" and not cfg["tavily_api_key"]:
         return None
     if cfg != st.session_state.chatbot_config:
         try:
@@ -78,6 +94,8 @@ def _get_chatbot() -> AgenticChatbot | None:
                 model=cfg["model"],
                 api_key=cfg["api_key"],
                 usecase=cfg["usecase"],
+                chatbot_type=cfg["chatbot_type"],
+                tavily_api_key=cfg["tavily_api_key"],
             )
             st.session_state.chatbot_config = cfg
         except Exception as e:
@@ -87,12 +105,17 @@ def _get_chatbot() -> AgenticChatbot | None:
 
 
 def _is_configured() -> bool:
-    return (
+    base = (
         st.session_state.selected_bot is not None
         and st.session_state.selected_provider is not None
         and st.session_state.selected_model is not None
         and st.session_state.api_key.strip() != ""
     )
+    if not base:
+        return False
+    if st.session_state.selected_chatbot_type == "Chatbot with Tools":
+        return st.session_state.tavily_api_key.strip() != ""
+    return True
 
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
@@ -166,6 +189,36 @@ with st.sidebar:
         label_visibility="collapsed",
     )
     st.session_state.selected_usecase = selected_usecase
+
+    # Chatbot type selection
+    _label("Chatbot Type")
+    chatbot_type_index = CHATBOT_TYPES.index(st.session_state.selected_chatbot_type) if st.session_state.selected_chatbot_type in CHATBOT_TYPES else 0
+    selected_chatbot_type = st.selectbox(
+        label="Chatbot Type",
+        options=CHATBOT_TYPES,
+        index=chatbot_type_index,
+        key="chatbot_type_select",
+        label_visibility="collapsed",
+    )
+    if selected_chatbot_type != st.session_state.selected_chatbot_type:
+        st.session_state.selected_chatbot_type = selected_chatbot_type
+        st.session_state.messages = []
+        st.session_state.chatbot = None
+        st.session_state.chatbot_config = {}
+        st.rerun()
+
+    # Tavily API Key (only for Chatbot with Tools)
+    if st.session_state.selected_chatbot_type == "Chatbot with Tools":
+        _label("Tavily API Key")
+        tavily_api_key = st.text_input(
+            label="Tavily API Key",
+            value=st.session_state.tavily_api_key,
+            placeholder="Enter your Tavily API key…",
+            type="password",
+            key="tavily_api_key_input",
+            label_visibility="collapsed",
+        )
+        st.session_state.tavily_api_key = tavily_api_key
 
     # API Key
     _label("API Key")

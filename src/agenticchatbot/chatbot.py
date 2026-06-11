@@ -1,3 +1,4 @@
+import os
 from langchain_core.messages import HumanMessage, AIMessage
 
 from agenticchatbot.llm.openai_llm import OpenAILLM
@@ -26,14 +27,17 @@ _PROVIDER_MAP = {
 
 
 class AgenticChatbot:
-    def __init__(self, provider: str, model: str, api_key: str, usecase: str):
+    def __init__(self, provider: str, model: str, api_key: str, usecase: str,
+                 chatbot_type: str = "Basic Chatbot", tavily_api_key: str = ""):
         config = _PROVIDER_MAP[provider]
         user_control_input = {
             config["api_key_field"]: api_key,
             config["model_field"]: model,
         }
         llm = config["class"](user_control_input).get_llm_model()
-        self.graph = GraphBuilder(llm).setup_graph(usecase)
+        if chatbot_type == "Chatbot with Tools" and tavily_api_key:
+            os.environ["TAVILY_API_KEY"] = tavily_api_key
+        self.graph = GraphBuilder(llm).setup_graph(chatbot_type)
 
     def chat(self, history: list[dict]) -> str:
         """
