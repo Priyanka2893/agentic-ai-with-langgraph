@@ -25,7 +25,10 @@ USECASES = [
 CHATBOT_TYPES = [
     "Basic Chatbot",
     "Chatbot with Tools",
+    "AI News",
 ]
+
+AI_NEWS_FREQUENCIES = ["daily", "weekly", "monthly", "yearly"]
 
 # ── Page config ────────────────────────────────────────────────────────────────
 
@@ -68,6 +71,15 @@ if "selected_chatbot_type" not in st.session_state:
 if "tavily_api_key" not in st.session_state:
     st.session_state.tavily_api_key = ""
 
+if "ai_news_frequency" not in st.session_state:
+    st.session_state.ai_news_frequency = "daily"
+
+if "ai_news_result" not in st.session_state:
+    st.session_state.ai_news_result = None
+
+if "ai_news_filename" not in st.session_state:
+    st.session_state.ai_news_filename = None
+
 
 def _current_config() -> dict:
     return {
@@ -85,7 +97,7 @@ def _get_chatbot() -> AgenticChatbot | None:
     required = {k: v for k, v in cfg.items() if k != "tavily_api_key"}
     if any(v is None or v == "" for v in required.values()):
         return None
-    if cfg["chatbot_type"] == "Chatbot with Tools" and not cfg["tavily_api_key"]:
+    if cfg["chatbot_type"] in ("Chatbot with Tools", "AI News") and not cfg["tavily_api_key"]:
         return None
     if cfg != st.session_state.chatbot_config:
         try:
@@ -113,7 +125,7 @@ def _is_configured() -> bool:
     )
     if not base:
         return False
-    if st.session_state.selected_chatbot_type == "Chatbot with Tools":
+    if st.session_state.selected_chatbot_type in ("Chatbot with Tools", "AI News"):
         return st.session_state.tavily_api_key.strip() != ""
     return True
 
@@ -205,10 +217,12 @@ with st.sidebar:
         st.session_state.messages = []
         st.session_state.chatbot = None
         st.session_state.chatbot_config = {}
+        st.session_state.ai_news_result = None
+        st.session_state.ai_news_filename = None
         st.rerun()
 
-    # Tavily API Key (only for Chatbot with Tools)
-    if st.session_state.selected_chatbot_type == "Chatbot with Tools":
+    # Tavily API Key (for Chatbot with Tools and AI News)
+    if st.session_state.selected_chatbot_type in ("Chatbot with Tools", "AI News"):
         _label("Tavily API Key")
         tavily_api_key = st.text_input(
             label="Tavily API Key",
@@ -236,6 +250,10 @@ with st.sidebar:
 
     if st.button("Clear Chat", use_container_width=True):
         st.session_state.messages = []
+        st.session_state.chatbot = None
+        st.session_state.chatbot_config = {}
+        st.session_state.ai_news_result = None
+        st.session_state.ai_news_filename = None
         st.rerun()
 
 
@@ -250,36 +268,73 @@ if _is_configured():
         f"**{st.session_state.selected_model}** · "
         f"_{st.session_state.selected_usecase}_"
     )
-else:
+elif st.session_state.selected_chatbot_type != "AI News":
     st.warning("Configure Bot, LLM Provider, Model, and API Key in the sidebar to start chatting.")
 
-# Chat history
-chat_container = st.container()
-with chat_container:
-    if not st.session_state.messages:
-        if _is_configured():
-            st.info("Start a conversation below.")
-    for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+# ── AI News panel ─────────────────────────────────────────────────────────────
 
-# Chat input — disabled until fully configured
-if _is_configured():
-    if prompt := st.chat_input("Type your message…"):
-        st.session_state.messages.append({"role": "user", "content": prompt})
+if st.session_state.selected_chatbot_type == "AI News":
+    if _is_configured():
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            frequency = st.selectbox(
+                "News frequency",
+                options=AI_NEWS_FREQUENCIES,
+                index=AI_NEWS_FREQUENCIES.index(st.session_state.ai_news_frequency),
+                key="ai_news_freq_select",
+            )
+            st.session_state.ai_news_frequency = frequency
+        with col2:
+            st.write("")
+            fetch_clicked = st.button("Fetch News", type="primary", use_container_width=True)
 
-        with st.chat_message("user"):
-            st.markdown(prompt)
-
-        chatbot = _get_chatbot()
-        if chatbot:
-            with st.chat_message("assistant"):
-                with st.spinner("Thinking…"):
+        if fetch_clicked:
+            chatbot = _get_chatbot()
+            if chatbot:
+                with st.spinner(f"Fetching and summarizing {frequency} AI news…"):
                     try:
-                        response = chatbot.chat(st.session_state.messages)
+                        result = chatbot.fetch_news(frequency)
+                        st.session_state.ai_news_result = result["summary"]
+                        st.session_state.ai_news_filename = result.get("filename", "")
                     except Exception as e:
-                        response = f"Error: {e}"
-                st.markdown(response)
-            st.session_state.messages.append({"role": "assistant", "content": response})
+                        st.error(f"Error: {e}")
+
+        if st.session_state.ai_news_result:
+            st.divider()
+            st.markdown(st.session_state.ai_news_result)
+            if st.session_state.ai_news_filename:
+                st.caption(f"Saved to: `{st.session_state.ai_news_filename}`")
+    else:
+        st.warning("Configure Bot, LLM Provider, Model, Tavily API Key, and API Key in the sidebar to fetch news.")
+
+# ── Chat area (all other chatbot types) ───────────────────────────────────────
+
 else:
-    st.chat_input("Complete sidebar configuration to chat…", disabled=True)
+    chat_container = st.container()
+    with chat_container:
+        if not st.session_state.messages:
+            if _is_configured():
+                st.info("Start a conversation below.")
+        for msg in st.session_state.messages:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
+
+    if _is_configured():
+        if prompt := st.chat_input("Type your message…"):
+            st.session_state.messages.append({"role": "user", "content": prompt})
+
+            with st.chat_message("user"):
+                st.markdown(prompt)
+
+            chatbot = _get_chatbot()
+            if chatbot:
+                with st.chat_message("assistant"):
+                    with st.spinner("Thinking…"):
+                        try:
+                            response = chatbot.chat(st.session_state.messages)
+                        except Exception as e:
+                            response = f"Error: {e}"
+                    st.markdown(response)
+                st.session_state.messages.append({"role": "assistant", "content": response})
+    else:
+        st.chat_input("Complete sidebar configuration to chat…", disabled=True)

@@ -35,9 +35,14 @@ class AgenticChatbot:
             config["model_field"]: model,
         }
         llm = config["class"](user_control_input).get_llm_model()
-        if chatbot_type == "Chatbot with Tools" and tavily_api_key:
+        if chatbot_type in ("Chatbot with Tools", "AI News") and tavily_api_key:
             os.environ["TAVILY_API_KEY"] = tavily_api_key
+        self.chatbot_type = chatbot_type
         self.graph = GraphBuilder(llm).setup_graph(chatbot_type)
+
+    def fetch_news(self, frequency: str) -> dict:
+        result = self.graph.invoke({"messages": [HumanMessage(content=frequency)]})
+        return {"summary": result.get("summary", ""), "filename": result.get("filename", "")}
 
     def chat(self, history: list[dict]) -> str:
         """
